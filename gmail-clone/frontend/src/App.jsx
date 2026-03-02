@@ -8,8 +8,16 @@ import Mail from "./components/Mail";
 import SendEmail from "./components/SendEmail";
 import Login from "./components/Login";
 import Signup from "./components/Signup";
+import Settings from "./components/Settings";
 import api from "./lib/api";
-import { setAuthChecked, setAuthUser } from "./redux/appSlice";
+import {
+  setAuthChecked,
+  setAuthUser,
+  setEmails,
+  setOpen,
+  setSelectedEmail,
+  setSelectedFolder,
+} from "./redux/appSlice";
 
 const appRouter = createBrowserRouter([
   {
@@ -23,6 +31,10 @@ const appRouter = createBrowserRouter([
       {
         path: "/mail/:id",
         element: <Mail />,
+      },
+      {
+        path: "/settings",
+        element: <Settings />,
       },
     ],
   },
@@ -38,17 +50,12 @@ const appRouter = createBrowserRouter([
 
 function App() {
   const dispatch = useDispatch();
-  const { open, user, authChecked } = useSelector((store) => store);
+  const { open, authChecked } = useSelector((store) => store);
 
   useEffect(() => {
     let active = true;
 
     const restoreSession = async () => {
-      if (user) {
-        dispatch(setAuthChecked(true));
-        return;
-      }
-
       try {
         const res = await api.get("/user/me");
         if (active && res.data.success) {
@@ -70,7 +77,28 @@ function App() {
     return () => {
       active = false;
     };
-  }, [dispatch, user]);
+  }, [dispatch]);
+
+  useEffect(() => {
+    const handleAuthExpired = async () => {
+      try {
+        await api.get("/user/logout");
+      } catch {
+        // no-op
+      }
+
+      dispatch(setAuthUser(null));
+      dispatch(setEmails([]));
+      dispatch(setSelectedEmail(null));
+      dispatch(setOpen(false));
+      dispatch(setSelectedFolder("inbox"));
+      dispatch(setAuthChecked(true));
+      window.location.href = "/login";
+    };
+
+    window.addEventListener("auth:expired", handleAuthExpired);
+    return () => window.removeEventListener("auth:expired", handleAuthExpired);
+  }, [dispatch]);
 
   if (!authChecked) {
     return <div className="bg-[#F6F8FC] h-screen" />;
@@ -79,11 +107,7 @@ function App() {
   return (
     <div className="bg-[#F6F8FC] h-screen">
       <RouterProvider router={appRouter} />
-      {open && (
-        <div className="absolute w-[30%] bottom-0 right-20 z-10">
-          <SendEmail />
-        </div>
-      )}
+      {open && <SendEmail />}
       <Toaster />
     </div>
   );

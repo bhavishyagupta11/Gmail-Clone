@@ -9,6 +9,7 @@ const appSlice = createSlice({
     emails: [],
     selectedEmail: null,
     searchText: "",
+    selectedFolder: "inbox",
   },
   reducers: {
     setOpen: (state, action) => {
@@ -26,6 +27,14 @@ const appSlice = createSlice({
     addEmail: (state, action) => {
       state.emails = [action.payload, ...state.emails];
     },
+    updateEmailInState: (state, action) => {
+      state.emails = state.emails.map((email) =>
+        email._id === action.payload._id ? action.payload : email
+      );
+      if (state.selectedEmail && state.selectedEmail._id === action.payload._id) {
+        state.selectedEmail = action.payload;
+      }
+    },
     removeEmail: (state, action) => {
       state.emails = state.emails.filter((email) => email._id !== action.payload);
     },
@@ -34,6 +43,9 @@ const appSlice = createSlice({
     },
     setSearchText: (state, action) => {
       state.searchText = action.payload;
+    },
+    setSelectedFolder: (state, action) => {
+      state.selectedFolder = action.payload;
     },
   },
 });
@@ -44,9 +56,11 @@ export const {
   setAuthChecked,
   setEmails,
   addEmail,
+  updateEmailInState,
   removeEmail,
   setSelectedEmail,
   setSearchText,
+  setSelectedFolder,
 } = appSlice.actions;
 
 export default appSlice.reducer;

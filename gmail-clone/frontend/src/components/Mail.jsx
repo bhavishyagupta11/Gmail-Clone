@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate, useParams } from "react-router-dom";
-import { removeEmail, setSelectedEmail } from "../redux/appSlice";
+import { removeEmail, setSelectedEmail, updateEmailInState } from "../redux/appSlice";
 import { IoArrowBack } from "react-icons/io5";
 import { MdOutlineDelete, MdOutlineArchive, MdOutlineMarkEmailUnread } from "react-icons/md";
 import { HiOutlinePrinter } from "react-icons/hi";
@@ -13,9 +13,7 @@ const Mail = () => {
   const { selectedEmail, user } = useSelector((store) => store);
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const [email, setEmail] = useState(
-    selectedEmail && selectedEmail._id === id ? selectedEmail : null
-  );
+  const [email, setEmail] = useState(selectedEmail && selectedEmail._id === id ? selectedEmail : null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,6 +25,7 @@ const Mail = () => {
         if (active && res.data.success) {
           setEmail(res.data.email);
           dispatch(setSelectedEmail(res.data.email));
+          dispatch(updateEmailInState(res.data.email));
         }
       } catch {
         if (active) {
@@ -39,20 +38,12 @@ const Mail = () => {
       }
     };
 
-    if (selectedEmail && selectedEmail._id === id) {
-      setEmail(selectedEmail);
-      setLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-
     fetchEmail();
 
     return () => {
       active = false;
     };
-  }, [dispatch, id, navigate, selectedEmail]);
+  }, [dispatch, id, navigate]);
 
   const deleteEmailHandler = async () => {
     try {
@@ -82,6 +73,10 @@ const Mail = () => {
     return <div className="flex-1 bg-white rounded-2xl mx-2" />;
   }
 
+  const isSent = email.box === "sent";
+  const topLabel = isSent ? "to" : "from";
+  const topAddress = isSent ? email.to : email.from;
+
   return (
     <div className="flex-1 bg-white rounded-2xl mx-2 overflow-y-auto">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
@@ -97,13 +92,20 @@ const Mail = () => {
         <button className="p-2 rounded-full hover:bg-gray-100 transition-colors">
           <MdOutlineArchive size={20} className="text-gray-600" />
         </button>
-        <button
-          onClick={deleteEmailHandler}
-          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-        >
+        <button onClick={deleteEmailHandler} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
           <MdOutlineDelete size={20} className="text-gray-600" />
         </button>
-        <button className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+        <button
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+          onClick={async () => {
+            const res = await api.patch(`/email/${id}`, { isRead: false });
+            if (res.data.success) {
+              dispatch(updateEmailInState(res.data.email));
+              setEmail(res.data.email);
+            }
+          }}
+          title="Mark as unread"
+        >
           <MdOutlineMarkEmailUnread size={20} className="text-gray-600" />
         </button>
         <button className="p-2 rounded-full hover:bg-gray-100 transition-colors ml-auto">
@@ -120,15 +122,17 @@ const Mail = () => {
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-              {user?.fullname?.charAt(0)?.toUpperCase() || "U"}
+              {(topAddress || user?.email || "U").charAt(0).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-800">{user?.fullname}</span>
-                <span className="text-sm text-gray-500">&lt;{user?.email}&gt;</span>
+                <span className="font-medium text-gray-800">{topAddress}</span>
               </div>
               <div className="text-sm text-gray-500">
-                to: <span className="text-gray-700">{email.to}</span>
+                {topLabel}: <span className="text-gray-700">{topAddress}</span>
+              </div>
+              <div className="text-sm text-gray-500">
+                {isSent ? "from" : "to"}: <span className="text-gray-700">{isSent ? email.from : email.to}</span>
               </div>
             </div>
           </div>
@@ -138,13 +142,6 @@ const Mail = () => {
         <div className="border-t border-gray-100 mb-6" />
 
         <div className="text-gray-700 leading-relaxed whitespace-pre-wrap text-sm">{email.message}</div>
-
-        <div className="mt-10 border border-gray-200 rounded-2xl p-4">
-          <div className="text-sm text-gray-600 mb-3">
-            Click here to <span className="text-blue-600 cursor-pointer hover:underline">Reply</span> or{" "}
-            <span className="text-blue-600 cursor-pointer hover:underline">Forward</span>
-          </div>
-        </div>
       </div>
     </div>
   );

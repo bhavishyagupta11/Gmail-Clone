@@ -73,16 +73,52 @@ export const createUser = async ({ fullname, email, password, profilePhoto }) =>
   return user;
 };
 
-export const createEmail = async ({ to, subject, message, userId }) => {
+export const updateUserById = async ({ userId, updates }) => {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user._id === userId);
+
+  if (index === -1) {
+    return null;
+  }
+
+  const updated = {
+    ...db.users[index],
+    ...updates,
+    updatedAt: nowIso(),
+  };
+
+  db.users[index] = updated;
+  await writeDb(db);
+  return updated;
+};
+
+export const createEmail = async ({
+  from,
+  to,
+  subject,
+  message,
+  userId,
+  box = "inbox",
+  category = "primary",
+  isRead,
+  externalMessageId = null,
+}) => {
   const db = await readDb();
   const timestamp = nowIso();
 
   const email = {
     _id: randomUUID(),
+    from,
     to,
     subject,
     message,
     userId,
+    box,
+    isRead: typeof isRead === "boolean" ? isRead : box === "sent",
+    isStarred: false,
+    isSpam: false,
+    category,
+    externalMessageId,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -102,6 +138,26 @@ export const getEmailsByUserId = async (userId) => {
 export const getEmailByIdForUser = async ({ emailId, userId }) => {
   const db = await readDb();
   return db.emails.find((email) => email._id === emailId && email.userId === userId) || null;
+};
+
+export const updateEmailByIdForUser = async ({ emailId, userId, updates }) => {
+  const db = await readDb();
+  const index = db.emails.findIndex((email) => email._id === emailId && email.userId === userId);
+
+  if (index === -1) {
+    return null;
+  }
+
+  const existing = db.emails[index];
+  const updated = {
+    ...existing,
+    ...updates,
+    updatedAt: nowIso(),
+  };
+
+  db.emails[index] = updated;
+  await writeDb(db);
+  return updated;
 };
 
 export const deleteEmailByIdForUser = async ({ emailId, userId }) => {

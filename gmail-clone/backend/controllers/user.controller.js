@@ -2,7 +2,7 @@ import { User } from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { isMongoConnected } from "../db/connectDB.js";
-import { createUser, findUserByEmail, findUserById } from "../db/localStore.js";
+import { createUser, findUserByEmail, findUserById, updateUserById } from "../db/localStore.js";
 
 const getJwtSecret = () => process.env.SECRET_KEY || "dev_secret_key_change_me";
 
@@ -13,13 +13,18 @@ const sanitizeUser = (user) => ({
   profilePhoto: user.profilePhoto,
 });
 
-const applyAuthCookie = (res, token) => {
-  res.cookie("token", token, {
+const getCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  };
+};
+
+const applyAuthCookie = (res, token) => {
+  res.cookie("token", token, getCookieOptions());
 };
 
 export const register = async (req, res) => {
@@ -76,9 +81,23 @@ export const login = async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    const user = isMongoConnected()
+    const mongoMode = isMongoConnected();
+    let user = mongoMode
       ? await User.findOne({ email: normalizedEmail })
       : await findUserByEmail(normalizedEmail);
+
+    // If the project switched from local JSON to Mongo, migrate the local user on login.
+    if (!user && mongoMode) {
+      const legacyUser = await findUserByEmail(normalizedEmail);
+      if (legacyUser) {
+        user = await User.create({
+          fullname: legacyUser.fullname,
+          email: legacyUser.email,
+          password: legacyUser.password,
+          profilePhoto: legacyUser.profilePhoto,
+        });
+      }
+    }
 
     if (!user) {
       return res.status(400).json({ message: "Invalid email or password.", success: false });
@@ -110,7 +129,7 @@ export const getCurrentUser = async (req, res) => {
       : await findUserById(req.id);
 
     if (!user) {
-      res.clearCookie("token");
+      res.clearCookie("token", getCookieOptions());
       return res.status(404).json({ message: "User not found.", success: false });
     }
 
@@ -121,13 +140,44 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
+export const updateProfilePhoto = async (req, res) => {
+  try {
+    const { profilePhoto } = req.body;
+
+    if (!profilePhoto || typeof profilePhoto !== "string") {
+      return res.status(400).json({ message: "Profile photo is required.", success: false });
+    }
+
+    if (profilePhoto.length > 2_000_000) {
+      return res.status(400).json({ message: "Profile photo is too large.", success: false });
+    }
+
+    let user = null;
+
+    if (isMongoConnected()) {
+      user = await User.findByIdAndUpdate(
+        req.id,
+        { profilePhoto },
+        { new: true, select: "_id fullname email profilePhoto" }
+      );
+    } else {
+      user = await updateUserById({ userId: req.id, updates: { profilePhoto } });
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found.", success: false });
+    }
+
+    return res.status(200).json({ success: true, message: "Profile photo updated.", user: sanitizeUser(user) });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Internal server error.", success: false });
+  }
+};
+
 export const logout = async (req, res) => {
   try {
-    res.clearCookie("token", {
-      httpOnly: true,
-      sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
-    });
+    res.clearCookie("token", getCookieOptions());
 
     return res.status(200).json({ message: "Logged out successfully.", success: true });
   } catch (error) {

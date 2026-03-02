@@ -1,164 +1,104 @@
-# Gmail Clone - MERN Stack
+# Gmail Clone - MERN + SMTP
 
-A fully functional Gmail clone built with the MERN stack (MongoDB, Express.js, React, Node.js), featuring user authentication, email CRUD operations, Redux state management, and a responsive Gmail-like UI.
-
----
+A production-style Gmail clone built with MERN stack and JWT auth, featuring:
+- app-to-app inbox delivery (registered users)
+- optional real SMTP delivery to external email IDs
+- MongoDB Atlas persistence
 
 ## Features
-
-- User Registration & Login with JWT authentication
-- Send, view, and delete emails
-- Redux Toolkit for state management with redux-persist (sessions persist on refresh)
-- Search/filter emails in real time
-- Protected routes (unauthenticated users are redirected to login)
-- Responsive Gmail-inspired UI with Tailwind CSS
-- Collapsible sidebar with compose button
-- Toast notifications for user feedback
-
----
+- Signup/Login/Logout with HTTP-only cookie JWT auth
+- Session restore (`/user/me`) and expired-token handling
+- Compose email with `Primary` / `Updates` category
+- Folder views: Inbox, Updates, Starred, Sent, Spam
+- Star/Spam toggle actions
+- Email detail view with direct route support
+- Profile menu + Settings page
 
 ## Tech Stack
-
-| Layer     | Technology                          |
-|-----------|-------------------------------------|
-| Frontend  | React 18, Vite, Tailwind CSS, Redux Toolkit, React Router v6 |
-| Backend   | Node.js, Express.js                 |
-| Database  | MongoDB Atlas (via Mongoose)        |
-| Auth      | JWT + HTTP-only cookies             |
-| State     | Redux Toolkit + redux-persist       |
-
----
+- Frontend: React 18, Vite, Tailwind CSS, Redux Toolkit, React Router
+- Backend: Node.js, Express, Mongoose
+- DB: MongoDB Atlas
+- Optional outbound email: Nodemailer (SMTP)
 
 ## Project Structure
-
-```
+```text
 gmail-clone/
 ├── backend/
 │   ├── controllers/
-│   │   ├── user.controller.js
-│   │   └── email.controller.js
 │   ├── db/
-│   │   └── connectDB.js
 │   ├── middleware/
-│   │   └── isAuthenticated.js
 │   ├── models/
-│   │   ├── user.model.js
-│   │   └── email.model.js
 │   ├── routes/
-│   │   ├── user.route.js
-│   │   └── email.route.js
+│   ├── services/
 │   ├── .env.example
-│   ├── index.js
-│   └── package.json
-│
+│   └── index.js
 └── frontend/
     ├── src/
-    │   ├── components/
-    │   │   ├── Body.jsx
-    │   │   ├── Inbox.jsx
-    │   │   ├── Login.jsx
-    │   │   ├── Mail.jsx
-    │   │   ├── Navbar.jsx
-    │   │   ├── SendEmail.jsx
-    │   │   ├── Sidebar.jsx
-    │   │   └── Signup.jsx
-    │   ├── redux/
-    │   │   ├── appSlice.js
-    │   │   └── store.js
-    │   ├── App.jsx
-    │   ├── main.jsx
-    │   └── index.css
-    ├── index.html
-    ├── tailwind.config.js
-    ├── vite.config.js
+    ├── .env.example
     └── package.json
 ```
 
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v18+)
-- MongoDB Atlas account (or local MongoDB)
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/gmail-clone.git
-cd gmail-clone
-```
-
-### 2. Setup Backend
-
+## Setup
+### 1. Backend
 ```bash
 cd backend
 npm install
 ```
 
-Create a `.env` file based on `.env.example`:
-
+Create `backend/.env` from `backend/.env.example`:
 ```env
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/gmail-clone
-SECRET_KEY=your_super_secret_jwt_key
+MONGO_URI=your_mongo_uri
+SECRET_KEY=your_jwt_secret
 PORT=8080
+CLIENT_URL=http://localhost:5173
+
+# Optional SMTP for real external email delivery
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_sender@gmail.com
+SMTP_PASS=your_16_char_app_password
+SMTP_FROM=your_sender@gmail.com
 ```
 
-Start the backend server:
-
+Start backend:
 ```bash
-npm run dev
+npm start
 ```
 
-### 3. Setup Frontend
-
+### 2. Frontend
 ```bash
 cd ../frontend
 npm install
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173` and the backend at `http://localhost:8080`.
+Frontend: `http://localhost:5173`
+Backend: `http://localhost:8080`
 
----
+## Delivery Behavior
+- If recipient email belongs to a registered app user: recipient gets an inbox copy.
+- Sender always gets a sent copy.
+- If SMTP is configured: real external email is also sent.
+- If SMTP is not configured: only in-app delivery occurs.
 
 ## API Endpoints
+### User (`/api/v1/user`)
+- `POST /register`
+- `POST /login`
+- `GET /me`
+- `GET /logout`
 
-### User Routes (`/api/v1/user`)
+### Email (`/api/v1/email`) (auth required)
+- `POST /create`
+- `GET /getallemails`
+- `GET /:id`
+- `PATCH /:id`
+- `DELETE /:id`
 
-| Method | Endpoint    | Description         |
-|--------|-------------|---------------------|
-| POST   | `/register` | Register a new user |
-| POST   | `/login`    | Login user          |
-| GET    | `/logout`   | Logout user         |
-
-### Email Routes (`/api/v1/email`) — All protected
-
-| Method | Endpoint          | Description          |
-|--------|-------------------|----------------------|
-| POST   | `/create`         | Send a new email     |
-| GET    | `/getallemails`   | Fetch all user emails|
-| DELETE | `/:id`            | Delete an email      |
-
----
-
-## Environment Variables
-
-| Variable    | Description                     |
-|-------------|---------------------------------|
-| `MONGO_URI` | MongoDB connection string        |
-| `SECRET_KEY`| JWT secret key                  |
-| `PORT`      | Backend server port (default 8080) |
-
----
-
-## Screenshots
-
-> Login → Inbox → Compose → View Email flow
-
----
+## Security Notes
+- Never commit `.env` files.
+- Rotate SMTP app passwords if exposed.
+- Use strong `SECRET_KEY` in production.
 
 ## License
-
 MIT

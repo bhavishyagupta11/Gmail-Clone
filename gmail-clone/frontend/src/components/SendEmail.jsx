@@ -2,18 +2,25 @@ import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import toast from "react-hot-toast";
 import { addEmail, setOpen } from "../redux/appSlice";
-import { IoClose, IoExpand } from "react-icons/io5";
+import { IoClose, IoExpand, IoContract } from "react-icons/io5";
 import { MdMinimize } from "react-icons/md";
 import { BsTrash } from "react-icons/bs";
 import api from "../lib/api";
 
 const SendEmail = () => {
   const dispatch = useDispatch();
-  const [input, setInput] = useState({ to: "", subject: "", message: "" });
+  const [input, setInput] = useState({ to: "", subject: "", message: "", category: "primary" });
   const [minimized, setMinimized] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const changeHandler = (e) => {
     setInput({ ...input, [e.target.name]: e.target.value });
+  };
+
+  const closeCompose = () => {
+    dispatch(setOpen(false));
+    setMinimized(false);
+    setExpanded(false);
   };
 
   const submitHandler = async (e) => {
@@ -21,10 +28,17 @@ const SendEmail = () => {
     try {
       const res = await api.post("/email/create", input);
       if (res.data.success) {
-        toast.success(res.data.message);
         dispatch(addEmail(res.data.email));
         dispatch(setOpen(false));
-        setInput({ to: "", subject: "", message: "" });
+        setInput({ to: "", subject: "", message: "", category: "primary" });
+        setMinimized(false);
+        setExpanded(false);
+
+        if (res.data.deliveredToSmtp) {
+          toast.success("Email sent and delivered.");
+        } else {
+          toast.success("Email sent. Recipient gets it in-app.");
+        }
       }
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to send email");
@@ -32,30 +46,43 @@ const SendEmail = () => {
   };
 
   return (
-    <div className="bg-white rounded-t-xl shadow-2xl border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between bg-[#404040] px-4 py-3 rounded-t-xl">
+    <div
+      className={`fixed z-40 bg-white shadow-2xl border border-gray-200 overflow-hidden transition-all duration-200 ${
+        expanded
+          ? "inset-8 rounded-2xl"
+          : minimized
+            ? "w-[420px] h-12 bottom-0 right-6 rounded-t-xl"
+            : "w-[520px] h-[560px] bottom-0 right-6 rounded-t-xl"
+      }`}
+    >
+      <div className="flex items-center justify-between bg-[#404040] px-4 py-3">
         <span className="text-white text-sm font-medium">New Message</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMinimized(!minimized)}
             className="text-gray-300 hover:text-white transition-colors"
+            title="Minimize"
           >
             <MdMinimize size={18} />
           </button>
-          <button className="text-gray-300 hover:text-white transition-colors">
-            <IoExpand size={16} />
-          </button>
           <button
-            onClick={() => dispatch(setOpen(false))}
+            onClick={() => {
+              setExpanded(!expanded);
+              setMinimized(false);
+            }}
             className="text-gray-300 hover:text-white transition-colors"
+            title={expanded ? "Restore" : "Expand"}
           >
+            {expanded ? <IoContract size={16} /> : <IoExpand size={16} />}
+          </button>
+          <button onClick={closeCompose} className="text-gray-300 hover:text-white transition-colors" title="Close">
             <IoClose size={18} />
           </button>
         </div>
       </div>
 
       {!minimized && (
-        <form onSubmit={submitHandler}>
+        <form onSubmit={submitHandler} className="h-[calc(100%-48px)] flex flex-col">
           <div className="border-b border-gray-200 px-4 py-2">
             <input
               type="email"
@@ -80,15 +107,26 @@ const SendEmail = () => {
             />
           </div>
 
-          <div className="px-4 py-3">
+          <div className="border-b border-gray-200 px-4 py-2">
+            <select
+              name="category"
+              value={input.category}
+              onChange={changeHandler}
+              className="w-full outline-none text-sm text-gray-700"
+            >
+              <option value="primary">Primary</option>
+              <option value="updates">Updates</option>
+            </select>
+          </div>
+
+          <div className="px-4 py-3 flex-1">
             <textarea
               name="message"
               value={input.message}
               onChange={changeHandler}
               placeholder="Write your message here..."
               required
-              rows={8}
-              className="w-full outline-none text-sm text-gray-700 resize-none placeholder-gray-400"
+              className="w-full h-full outline-none text-sm text-gray-700 resize-none placeholder-gray-400"
             />
           </div>
 
@@ -101,7 +139,7 @@ const SendEmail = () => {
             </button>
             <button
               type="button"
-              onClick={() => dispatch(setOpen(false))}
+              onClick={closeCompose}
               className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500"
             >
               <BsTrash size={18} />

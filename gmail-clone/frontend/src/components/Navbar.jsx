@@ -1,8 +1,14 @@
-import React from "react";
+import React, { useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { setAuthUser, setEmails, setSearchText, setSelectedEmail } from "../redux/appSlice";
+import {
+  setAuthUser,
+  setEmails,
+  setSearchText,
+  setSelectedEmail,
+  setSelectedFolder,
+} from "../redux/appSlice";
 import { FiMenu, FiSearch } from "react-icons/fi";
 import { MdOutlineHelp } from "react-icons/md";
 import { IoSettingsOutline } from "react-icons/io5";
@@ -13,15 +19,22 @@ const Navbar = ({ toggleSidebar }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { user, searchText } = useSelector((store) => store);
+  const [profileOpen, setProfileOpen] = React.useState(false);
+  const fileInputRef = useRef(null);
+
+  const resetStoreAndGotoLogin = () => {
+    dispatch(setAuthUser(null));
+    dispatch(setEmails([]));
+    dispatch(setSelectedEmail(null));
+    dispatch(setSelectedFolder("inbox"));
+    navigate("/login");
+  };
 
   const logoutHandler = async () => {
     try {
       const res = await api.get("/user/logout");
       if (res.data.success) {
-        dispatch(setAuthUser(null));
-        dispatch(setEmails([]));
-        dispatch(setSelectedEmail(null));
-        navigate("/login");
+        resetStoreAndGotoLogin();
         toast.success(res.data.message);
       }
     } catch (error) {
@@ -29,8 +42,49 @@ const Navbar = ({ toggleSidebar }) => {
     }
   };
 
+  const addAnotherAccountHandler = async () => {
+    try {
+      await api.get("/user/logout");
+    } catch {
+      // ignore
+    }
+    setProfileOpen(false);
+    resetStoreAndGotoLogin();
+    toast("Sign in with another account");
+  };
+
+  const onProfilePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 1_500_000) {
+      toast.error("Image too large. Use image below 1.5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await api.patch("/user/profile-photo", { profilePhoto: reader.result });
+        if (res.data.success) {
+          dispatch(setAuthUser(res.data.user));
+          toast.success("Profile photo updated.");
+        }
+      } catch (error) {
+        toast.error(error?.response?.data?.message || "Could not update profile photo.");
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   return (
-    <div className="flex items-center justify-between px-4 h-16 bg-[#F6F8FC] sticky top-0 z-10">
+    <div className="flex items-center justify-between px-4 h-16 bg-[#F6F8FC] sticky top-0 z-20">
       <div className="flex items-center gap-2">
         <button onClick={toggleSidebar} className="p-2 rounded-full hover:bg-gray-200 transition-colors">
           <FiMenu size={22} className="text-gray-600" />
@@ -58,39 +112,79 @@ const Navbar = ({ toggleSidebar }) => {
       </div>
 
       <div className="flex items-center gap-1">
-        <button className="p-2 rounded-full hover:bg-gray-200 transition-colors">
+        <button
+          className="p-2 rounded-full hover:bg-gray-200 transition-colors"
+          onClick={() => toast("Help center coming soon")}
+        >
           <MdOutlineHelp size={22} className="text-gray-600" />
         </button>
-        <button className="p-2 rounded-full hover:bg-gray-200 transition-colors">
+        <button
+          className="p-2 rounded-full hover:bg-gray-200 transition-colors"
+          onClick={() => navigate("/settings")}
+        >
           <IoSettingsOutline size={22} className="text-gray-600" />
         </button>
         <button className="p-2 rounded-full hover:bg-gray-200 transition-colors">
           <TbGridDots size={22} className="text-gray-600" />
         </button>
         {user && (
-          <div className="relative group ml-1">
-            <img
-              src={user.profilePhoto || `https://ui-avatars.com/api/?name=${user.fullname}`}
-              alt={user.fullname}
-              className="w-9 h-9 rounded-full cursor-pointer object-cover border-2 border-transparent hover:border-blue-400 transition-all"
-            />
-            <div className="absolute right-0 top-11 bg-white shadow-xl rounded-2xl py-4 px-6 w-64 hidden group-hover:block z-50 border border-gray-100">
-              <div className="flex flex-col items-center gap-2 pb-4 border-b">
-                <img
-                  src={user.profilePhoto || `https://ui-avatars.com/api/?name=${user.fullname}`}
-                  alt={user.fullname}
-                  className="w-16 h-16 rounded-full object-cover"
-                />
-                <p className="font-semibold text-gray-800">{user.fullname}</p>
-                <p className="text-sm text-gray-500">{user.email}</p>
+          <div className="relative ml-1">
+            <button onClick={() => setProfileOpen((prev) => !prev)}>
+              <img
+                src={user.profilePhoto || `https://ui-avatars.com/api/?name=${user.fullname}`}
+                alt={user.fullname}
+                className="w-9 h-9 rounded-full cursor-pointer object-cover border-2 border-transparent hover:border-blue-400 transition-all"
+              />
+            </button>
+            {profileOpen && (
+              <div className="absolute right-0 top-11 bg-white shadow-xl rounded-2xl py-4 px-6 w-72 z-50 border border-gray-100">
+                <div className="flex flex-col items-center gap-2 pb-4 border-b">
+                  <img
+                    src={user.profilePhoto || `https://ui-avatars.com/api/?name=${user.fullname}`}
+                    alt={user.fullname}
+                    className="w-16 h-16 rounded-full object-cover"
+                  />
+                  <p className="font-semibold text-gray-800">{user.fullname}</p>
+                  <p className="text-sm text-gray-500">{user.email}</p>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    Change profile photo
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onProfilePhotoChange}
+                  />
+                </div>
+                <div className="mt-4 space-y-2">
+                  <button
+                    onClick={addAnotherAccountHandler}
+                    className="w-full border border-gray-300 rounded-full py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Add another account
+                  </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false);
+                      navigate("/settings");
+                    }}
+                    className="w-full border border-gray-300 rounded-full py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Manage settings
+                  </button>
+                  <button
+                    onClick={logoutHandler}
+                    className="w-full border border-gray-300 rounded-full py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Sign out
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={logoutHandler}
-                className="mt-4 w-full border border-gray-300 rounded-full py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Sign out
-              </button>
-            </div>
+            )}
           </div>
         )}
       </div>
