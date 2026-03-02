@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "_id": "3392d0af-4af7-4aa0-b6d9-f7f7f374e050",
+      "fullname": "Bhavishya Gupta",
+      "email": "bhavishyagupta001@gmail.com",
+      "password": "$2a$10$J.chZ3MUDlWpcehxhkEzheqfVdmNGH8IJ/I5Sve9uo2Ys1zwq0A1O",
+      "profilePhoto": "https://ui-avatars.com/api/?name=Bhavishya%20Gupta&background=random",
+      "createdAt": "2026-03-02T06:17:10.742Z",
+      "updatedAt": "2026-03-02T06:17:10.742Z"
+    }
+  ],
+  "emails": []
+}
