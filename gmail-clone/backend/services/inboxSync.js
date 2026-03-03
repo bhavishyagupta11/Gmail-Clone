@@ -14,17 +14,48 @@ const getImapConfig = () => ({
 });
 
 const syncViaGmailApi = async ({ user, persistTokens }) => {
-  const gmailMessages = await syncInboxFromGmail({ user, persistTokens, limit: 100 });
+  const { messages: gmailMessages, complete } = await syncInboxFromGmail({ user, persistTokens, limit: 100, maxPages: 10 });
   let imported = 0;
+  let updated = 0;
+  let removed = 0;
+
+  const seenIds = new Set();
 
   for (const msg of gmailMessages) {
-    const exists = await Email.findOne({
+    if (!msg.externalMessageId) {
+      continue;
+    }
+
+    seenIds.add(msg.externalMessageId);
+
+    const existing = await Email.findOne({
       externalSource: "gmail",
       externalMessageId: msg.externalMessageId,
       userId: user._id,
     });
 
-    if (exists) {
+    if (existing) {
+      const needsUpdate =
+        existing.from !== msg.from ||
+        existing.to !== msg.to ||
+        existing.subject !== msg.subject ||
+        existing.message !== msg.message ||
+        existing.isRead !== msg.isRead ||
+        existing.isStarred !== msg.isStarred ||
+        existing.isSpam !== msg.isSpam;
+
+      if (needsUpdate) {
+        existing.from = msg.from;
+        existing.to = msg.to;
+        existing.subject = msg.subject;
+        existing.message = msg.message;
+        existing.isRead = msg.isRead;
+        existing.isStarred = msg.isStarred;
+        existing.isSpam = msg.isSpam;
+        await existing.save();
+        updated += 1;
+      }
+
       continue;
     }
 
@@ -48,7 +79,32 @@ const syncViaGmailApi = async ({ user, persistTokens }) => {
     imported += 1;
   }
 
-  return { imported, reason: null };
+  if (complete) {
+    const ids = [...seenIds];
+    const deleteQuery = {
+      externalSource: "gmail",
+      box: "inbox",
+      userId: user._id,
+    };
+
+    if (ids.length > 0) {
+      deleteQuery.externalMessageId = { $nin: ids };
+    }
+
+    const deleted = await Email.deleteMany(deleteQuery);
+    removed = deleted.deletedCount || 0;
+  }
+
+  const details = [];
+  if (updated > 0) details.push(`${updated} updated`);
+  if (removed > 0) details.push(`${removed} removed`);
+  if (!complete) details.push("partial sync");
+
+  return {
+    imported,
+    reason: null,
+    details: details.length > 0 ? details.join(", ") : null,
+  };
 };
 
 const syncViaImapFallback = async ({ user }) => {
@@ -110,3 +166,4 @@ export const syncIncomingForUser = async ({ user, persistTokens }) => {
 
   return syncViaImapFallback({ user });
 };
+

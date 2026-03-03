@@ -139,46 +139,65 @@ export const exchangeCodeForTokens = async ({ code }) => {
   };
 };
 
-export const syncInboxFromGmail = async ({ user, persistTokens, limit = 50 }) => {
+export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, maxPages = 10 }) => {
   const { gmail, oauth2Client } = await getAuthorizedClients({ user, persistTokens });
-  const listRes = await gmail.users.messages.list({
-    userId: "me",
-    labelIds: ["INBOX"],
-    maxResults: limit,
-  });
-
-  const items = listRes.data.messages || [];
   const messages = [];
 
-  for (const item of items) {
-    const msgRes = await gmail.users.messages.get({
+  let pageToken = undefined;
+  let pageCount = 0;
+  let complete = true;
+
+  while (pageCount < maxPages) {
+    const listRes = await gmail.users.messages.list({
       userId: "me",
-      id: item.id,
-      format: "metadata",
-      metadataHeaders: ["From", "To", "Subject", "Date"],
+      labelIds: ["INBOX"],
+      maxResults: limit,
+      pageToken,
     });
 
-    const payload = msgRes.data.payload || {};
-    const headers = payload.headers || [];
-    const labels = msgRes.data.labelIds || [];
+    const items = listRes.data.messages || [];
 
-    messages.push({
-      externalMessageId: msgRes.data.id,
-      from: getHeaderValue(headers, "From") || "unknown@unknown",
-      to: getHeaderValue(headers, "To") || user.email,
-      subject: getHeaderValue(headers, "Subject") || "(no subject)",
-      message: msgRes.data.snippet || "(no content)",
-      isRead: !labels.includes("UNREAD"),
-      isSpam: labels.includes("SPAM"),
-      isStarred: labels.includes("STARRED"),
-      category: "primary",
-      createdAt: msgRes.data.internalDate ? new Date(Number(msgRes.data.internalDate)) : new Date(),
-    });
+    for (const item of items) {
+      const msgRes = await gmail.users.messages.get({
+        userId: "me",
+        id: item.id,
+        format: "metadata",
+        metadataHeaders: ["From", "To", "Subject", "Date"],
+      });
+
+      const payload = msgRes.data.payload || {};
+      const headers = payload.headers || [];
+      const labels = msgRes.data.labelIds || [];
+
+      messages.push({
+        externalMessageId: msgRes.data.id,
+        from: getHeaderValue(headers, "From") || "unknown@unknown",
+        to: getHeaderValue(headers, "To") || user.email,
+        subject: getHeaderValue(headers, "Subject") || "(no subject)",
+        message: msgRes.data.snippet || "(no content)",
+        isRead: !labels.includes("UNREAD"),
+        isSpam: labels.includes("SPAM"),
+        isStarred: labels.includes("STARRED"),
+        category: "primary",
+        createdAt: msgRes.data.internalDate ? new Date(Number(msgRes.data.internalDate)) : new Date(),
+      });
+    }
+
+    pageCount += 1;
+    pageToken = listRes.data.nextPageToken;
+
+    if (!pageToken) {
+      break;
+    }
+  }
+
+  if (pageToken) {
+    complete = false;
   }
 
   await persistCredentialChanges({ oauth2Client, user, persistTokens });
 
-  return messages;
+  return { messages, complete };
 };
 
 export const sendViaGmail = async ({ user, to, subject, message, persistTokens }) => {
@@ -252,3 +271,4 @@ export const trashGmailMessage = async ({ user, messageId, persistTokens }) => {
   await gmail.users.messages.trash({ userId: "me", id: messageId });
   await persistCredentialChanges({ oauth2Client, user, persistTokens });
 };
+

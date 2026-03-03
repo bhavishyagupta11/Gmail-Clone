@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -29,6 +29,7 @@ const Inbox = () => {
   const { emails, searchText, user, selectedFolder } = useSelector((store) => store);
   const [selectedIds, setSelectedIds] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const runInboxSync = async () => {
     try {
@@ -172,7 +173,17 @@ const Inbox = () => {
     }
   };
 
-  const formatDate = (dateString) => {
+
+  useEffect(() => {
+    const onClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);  const formatDate = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
     const isToday = date.toDateString() === now.toDateString();
@@ -183,8 +194,8 @@ const Inbox = () => {
   };
 
   return (
-    <div className="flex-1 bg-white rounded-2xl mx-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 relative">
+    <div className="flex-1 bg-white rounded-2xl mx-2 overflow-visible">
+      <div ref={menuRef} className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 relative z-20 bg-white rounded-t-2xl">
         <button onClick={toggleSelectAll} className="p-2 rounded-full hover:bg-gray-100 transition-colors" title="Select all">
           {selectedAll ? <MdCheckBox size={20} className="text-blue-600" /> : <MdOutlineCheckBoxOutlineBlank size={20} className="text-gray-600" />}
         </button>
@@ -196,7 +207,7 @@ const Inbox = () => {
         </button>
 
         {menuOpen && (
-          <div className="absolute left-16 top-11 bg-white border border-gray-200 rounded-xl shadow-lg z-10 w-44 py-1">
+          <div className="absolute left-16 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 w-52 py-1">
             <button onClick={() => applyBulkAction("star")} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Star selected</button>
             <button onClick={() => applyBulkAction("spam")} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Mark spam</button>
             <button onClick={() => applyBulkAction("notspam")} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Mark not spam</button>
@@ -289,3 +300,5 @@ const Inbox = () => {
 };
 
 export default Inbox;
+
+
