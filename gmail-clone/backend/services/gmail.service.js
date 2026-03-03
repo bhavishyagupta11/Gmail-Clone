@@ -139,10 +139,24 @@ export const exchangeCodeForTokens = async ({ code }) => {
   };
 };
 
-export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, maxPages = 10 }) => {
-  const { gmail, oauth2Client } = await getAuthorizedClients({ user, persistTokens });
-  const messages = [];
+const determineBoxFromLabels = (labels = []) => {
+  if (labels.includes("SPAM")) {
+    return "inbox";
+  }
 
+  if (labels.includes("INBOX")) {
+    return "inbox";
+  }
+
+  if (labels.includes("SENT")) {
+    return "sent";
+  }
+
+  return "inbox";
+};
+
+const fetchMessagesForLabel = async ({ gmail, user, labelIds, limit, maxPages }) => {
+  const messages = [];
   let pageToken = undefined;
   let pageCount = 0;
   let complete = true;
@@ -150,7 +164,7 @@ export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, max
   while (pageCount < maxPages) {
     const listRes = await gmail.users.messages.list({
       userId: "me",
-      labelIds: ["INBOX"],
+      labelIds,
       maxResults: limit,
       pageToken,
     });
@@ -178,7 +192,8 @@ export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, max
         isRead: !labels.includes("UNREAD"),
         isSpam: labels.includes("SPAM"),
         isStarred: labels.includes("STARRED"),
-        category: "primary",
+        box: determineBoxFromLabels(labels),
+        category: labels.includes("CATEGORY_UPDATES") ? "updates" : "primary",
         createdAt: msgRes.data.internalDate ? new Date(Number(msgRes.data.internalDate)) : new Date(),
       });
     }
@@ -195,9 +210,44 @@ export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, max
     complete = false;
   }
 
+  return { messages, complete };
+};
+
+export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, maxPages = 20 }) => {
+  const { gmail, oauth2Client } = await getAuthorizedClients({ user, persistTokens });
+
+  const [inboxRes, sentRes, spamRes] = await Promise.all([
+    fetchMessagesForLabel({ gmail, user, labelIds: ["INBOX"], limit, maxPages }),
+    fetchMessagesForLabel({ gmail, user, labelIds: ["SENT"], limit, maxPages }),
+    fetchMessagesForLabel({ gmail, user, labelIds: ["SPAM"], limit, maxPages }),
+  ]);
+
+  const mergedById = new Map();
+  const priority = { sent: 1, inbox: 2, spam: 3 };
+
+  const all = [...sentRes.messages, ...inboxRes.messages, ...spamRes.messages];
+
+  for (const msg of all) {
+    if (!msg.externalMessageId) {
+      continue;
+    }
+
+    const key = msg.externalMessageId;
+    const current = mergedById.get(key);
+    const currentPriority = current ? (current.isSpam ? 3 : current.box === "inbox" ? 2 : 1) : 0;
+    const nextPriority = msg.isSpam ? 3 : msg.box === "inbox" ? 2 : 1;
+
+    if (!current || nextPriority >= currentPriority) {
+      mergedById.set(key, msg);
+    }
+  }
+
   await persistCredentialChanges({ oauth2Client, user, persistTokens });
 
-  return { messages, complete };
+  return {
+    messages: [...mergedById.values()],
+    complete: inboxRes.complete && sentRes.complete && spamRes.complete,
+  };
 };
 
 export const sendViaGmail = async ({ user, to, subject, message, persistTokens }) => {
@@ -271,4 +321,5 @@ export const trashGmailMessage = async ({ user, messageId, persistTokens }) => {
   await gmail.users.messages.trash({ userId: "me", id: messageId });
   await persistCredentialChanges({ oauth2Client, user, persistTokens });
 };
+
 

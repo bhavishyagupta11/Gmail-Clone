@@ -14,7 +14,7 @@ const getImapConfig = () => ({
 });
 
 const syncViaGmailApi = async ({ user, persistTokens }) => {
-  const { messages: gmailMessages, complete } = await syncInboxFromGmail({ user, persistTokens, limit: 100, maxPages: 10 });
+  const { messages: gmailMessages, complete } = await syncInboxFromGmail({ user, persistTokens, limit: 100, maxPages: 20 });
   let imported = 0;
   let updated = 0;
   let removed = 0;
@@ -42,7 +42,9 @@ const syncViaGmailApi = async ({ user, persistTokens }) => {
         existing.message !== msg.message ||
         existing.isRead !== msg.isRead ||
         existing.isStarred !== msg.isStarred ||
-        existing.isSpam !== msg.isSpam;
+        existing.isSpam !== msg.isSpam ||
+        existing.box !== msg.box ||
+        existing.category !== msg.category;
 
       if (needsUpdate) {
         existing.from = msg.from;
@@ -52,6 +54,8 @@ const syncViaGmailApi = async ({ user, persistTokens }) => {
         existing.isRead = msg.isRead;
         existing.isStarred = msg.isStarred;
         existing.isSpam = msg.isSpam;
+        existing.box = msg.box;
+        existing.category = msg.category;
         await existing.save();
         updated += 1;
       }
@@ -64,7 +68,7 @@ const syncViaGmailApi = async ({ user, persistTokens }) => {
       to: msg.to,
       subject: msg.subject,
       message: msg.message,
-      box: "inbox",
+      box: msg.box,
       category: msg.category,
       isStarred: msg.isStarred,
       isRead: msg.isRead,
@@ -83,7 +87,6 @@ const syncViaGmailApi = async ({ user, persistTokens }) => {
     const ids = [...seenIds];
     const deleteQuery = {
       externalSource: "gmail",
-      box: "inbox",
       userId: user._id,
     };
 
@@ -166,4 +169,9 @@ export const syncIncomingForUser = async ({ user, persistTokens }) => {
 
   return syncViaImapFallback({ user });
 };
+
+
+
+
+
 
