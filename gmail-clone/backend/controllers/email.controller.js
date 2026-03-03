@@ -9,10 +9,12 @@ import {
   getEmailByIdForUser,
   getEmailsByUserId,
   updateEmailByIdForUser,
+  updateUserById,
 } from "../db/localStore.js";
 import { User } from "../models/user.model.js";
 import { sendEmailViaSmtp } from "../services/mailer.js";
 import { syncIncomingForUser } from "../services/inboxSync.js";
+import { applyGmailMessageUpdates, sendViaGmail, trashGmailMessage } from "../services/gmail.service.js";
 
 const normalizeCategory = (value) => (value === "updates" ? "updates" : "primary");
 
@@ -30,6 +32,24 @@ const getUserByEmail = async (email) => {
   return findUserByEmail(email);
 };
 
+const persistUserGmailTokens = async ({ user, tokens }) => {
+  const nextGmail = {
+    connectedEmail: user?.gmail?.connectedEmail || null,
+    refreshToken: tokens.refreshToken || user?.gmail?.refreshToken || null,
+    accessToken: tokens.accessToken || user?.gmail?.accessToken || null,
+    tokenExpiryDate: tokens.tokenExpiryDate || user?.gmail?.tokenExpiryDate || null,
+    scope: tokens.scope || user?.gmail?.scope || null,
+  };
+
+  if (isMongoConnected()) {
+    await User.findByIdAndUpdate(user._id, { gmail: nextGmail });
+  } else {
+    await updateUserById({ userId: String(user._id), updates: { gmail: nextGmail } });
+  }
+};
+
+const isGmailLinkedEmail = (email) => email?.externalSource === "gmail" && Boolean(email?.externalMessageId);
+
 export const syncInbox = async (req, res) => {
   try {
     if (!isMongoConnected()) {
@@ -41,7 +61,10 @@ export const syncInbox = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const result = await syncIncomingForUser({ user });
+    const result = await syncIncomingForUser({
+      user,
+      persistTokens: (tokens) => persistUserGmailTokens({ user, tokens }),
+    });
 
     if (result.reason && result.imported === 0) {
       return res.status(200).json({ success: true, imported: 0, message: result.reason });
@@ -70,8 +93,47 @@ export const createEmail = async (req, res) => {
     const toEmail = to.trim().toLowerCase();
     const categoryValue = normalizeCategory(category);
 
+    let deliveryFrom = sender.email;
+    let externalSource = "local";
+    let externalMessageId = null;
+    let smtpStatus = { delivered: false, reason: "SMTP not attempted." };
+
+    if (isMongoConnected() && sender?.gmail?.refreshToken) {
+      try {
+        const gmailDelivery = await sendViaGmail({
+          user: sender,
+          to: toEmail,
+          subject: subject.trim(),
+          message: message.trim(),
+          persistTokens: (tokens) => persistUserGmailTokens({ user: sender, tokens }),
+        });
+
+        deliveryFrom = gmailDelivery.from || sender.email;
+        externalSource = "gmail";
+        externalMessageId = gmailDelivery.externalMessageId;
+        smtpStatus = { delivered: true, reason: null };
+      } catch (gmailError) {
+        console.error("Gmail API send failed, falling back to SMTP.", gmailError?.message || gmailError);
+      }
+    }
+
+    if (!smtpStatus.delivered) {
+      try {
+        smtpStatus = await sendEmailViaSmtp({
+          from: deliveryFrom,
+          to: toEmail,
+          subject: subject.trim(),
+          message: message.trim(),
+        });
+      } catch (smtpError) {
+        const code = smtpError?.code || smtpError?.responseCode || "UNKNOWN";
+        console.error(`SMTP delivery failed. code=${code}`);
+        smtpStatus = { delivered: false, reason: "SMTP delivery failed." };
+      }
+    }
+
     const sentPayload = {
-      from: sender.email,
+      from: deliveryFrom,
       to: toEmail,
       subject: subject.trim(),
       message: message.trim(),
@@ -79,6 +141,8 @@ export const createEmail = async (req, res) => {
       box: "sent",
       isRead: true,
       userId: req.id,
+      externalSource,
+      externalMessageId,
     };
 
     const recipientUser = await getUserByEmail(toEmail);
@@ -94,6 +158,8 @@ export const createEmail = async (req, res) => {
           ...sentPayload,
           box: "inbox",
           isRead: false,
+          externalSource: externalSource === "gmail" ? "local" : externalSource,
+          externalMessageId: null,
           userId: recipientUser._id,
         });
       }
@@ -105,24 +171,11 @@ export const createEmail = async (req, res) => {
           ...sentPayload,
           box: "inbox",
           isRead: false,
+          externalSource: "local",
+          externalMessageId: null,
           userId: String(recipientUser._id),
         });
       }
-    }
-
-    let smtpStatus = { delivered: false, reason: "SMTP not attempted." };
-
-    try {
-      smtpStatus = await sendEmailViaSmtp({
-        from: sender.email,
-        to: toEmail,
-        subject: subject.trim(),
-        message: message.trim(),
-      });
-    } catch (smtpError) {
-      const code = smtpError?.code || smtpError?.responseCode || "UNKNOWN";
-      console.error(`SMTP delivery failed. code=${code}`);
-      smtpStatus = { delivered: false, reason: "SMTP delivery failed." };
     }
 
     return res.status(201).json({
@@ -166,6 +219,23 @@ export const getEmailById = async (req, res) => {
       email = await Email.findOne({ _id: id, userId: req.id });
       if (email && email.box === "inbox" && !email.isRead) {
         email.isRead = true;
+
+        if (isGmailLinkedEmail(email)) {
+          const user = await User.findById(req.id);
+          if (user?.gmail?.refreshToken) {
+            try {
+              await applyGmailMessageUpdates({
+                user,
+                messageId: email.externalMessageId,
+                updates: { isRead: true },
+                persistTokens: (tokens) => persistUserGmailTokens({ user, tokens }),
+              });
+            } catch (gmailError) {
+              console.error("Gmail read sync failed:", gmailError?.message || gmailError);
+            }
+          }
+        }
+
         await email.save();
       }
     } else {
@@ -209,13 +279,40 @@ export const updateEmail = async (req, res) => {
       return res.status(400).json({ message: "No valid updates provided.", success: false });
     }
 
-    let email = null;
+    let existingEmail = null;
 
     if (isMongoConnected()) {
       if (!mongoose.isValidObjectId(id)) {
         return res.status(404).json({ message: "Email not found.", success: false });
       }
+      existingEmail = await Email.findOne({ _id: id, userId: req.id });
+    } else {
+      existingEmail = await getEmailByIdForUser({ emailId: id, userId: req.id });
+    }
 
+    if (!existingEmail) {
+      return res.status(404).json({ message: "Email not found.", success: false });
+    }
+
+    if (isMongoConnected() && isGmailLinkedEmail(existingEmail)) {
+      const user = await User.findById(req.id);
+      if (user?.gmail?.refreshToken) {
+        try {
+          await applyGmailMessageUpdates({
+            user,
+            messageId: existingEmail.externalMessageId,
+            updates,
+            persistTokens: (tokens) => persistUserGmailTokens({ user, tokens }),
+          });
+        } catch (gmailError) {
+          console.error("Gmail message update failed:", gmailError?.message || gmailError);
+        }
+      }
+    }
+
+    let email = null;
+
+    if (isMongoConnected()) {
       email = await Email.findOneAndUpdate({ _id: id, userId: req.id }, updates, {
         new: true,
       });
@@ -238,13 +335,39 @@ export const deleteEmail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    let deletedEmail = null;
+    let existingEmail = null;
 
     if (isMongoConnected()) {
       if (!mongoose.isValidObjectId(id)) {
         return res.status(404).json({ message: "Email not found.", success: false });
       }
+      existingEmail = await Email.findOne({ _id: id, userId: req.id });
+    } else {
+      existingEmail = await getEmailByIdForUser({ emailId: id, userId: req.id });
+    }
 
+    if (!existingEmail) {
+      return res.status(404).json({ message: "Email not found.", success: false });
+    }
+
+    if (isMongoConnected() && isGmailLinkedEmail(existingEmail)) {
+      const user = await User.findById(req.id);
+      if (user?.gmail?.refreshToken) {
+        try {
+          await trashGmailMessage({
+            user,
+            messageId: existingEmail.externalMessageId,
+            persistTokens: (tokens) => persistUserGmailTokens({ user, tokens }),
+          });
+        } catch (gmailError) {
+          console.error("Gmail trash failed:", gmailError?.message || gmailError);
+        }
+      }
+    }
+
+    let deletedEmail = null;
+
+    if (isMongoConnected()) {
       deletedEmail = await Email.findOneAndDelete({ _id: id, userId: req.id });
     } else {
       deletedEmail = await deleteEmailByIdForUser({ emailId: id, userId: req.id });

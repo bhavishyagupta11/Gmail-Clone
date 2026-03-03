@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { Email } from "../models/email.model.js";
+import { isGmailConfigured, syncInboxFromGmail } from "./gmail.service.js";
 
 const getImapConfig = () => ({
   host: process.env.IMAP_HOST || "imap.gmail.com",
@@ -12,7 +13,45 @@ const getImapConfig = () => ({
   },
 });
 
-export const syncIncomingForUser = async ({ user }) => {
+const syncViaGmailApi = async ({ user, persistTokens }) => {
+  const gmailMessages = await syncInboxFromGmail({ user, persistTokens, limit: 100 });
+  let imported = 0;
+
+  for (const msg of gmailMessages) {
+    const exists = await Email.findOne({
+      externalSource: "gmail",
+      externalMessageId: msg.externalMessageId,
+      userId: user._id,
+    });
+
+    if (exists) {
+      continue;
+    }
+
+    await Email.create({
+      from: msg.from,
+      to: msg.to,
+      subject: msg.subject,
+      message: msg.message,
+      box: "inbox",
+      category: msg.category,
+      isStarred: msg.isStarred,
+      isRead: msg.isRead,
+      isSpam: msg.isSpam,
+      externalSource: "gmail",
+      externalMessageId: msg.externalMessageId,
+      userId: user._id,
+      createdAt: msg.createdAt,
+      updatedAt: msg.createdAt,
+    });
+
+    imported += 1;
+  }
+
+  return { imported, reason: null };
+};
+
+const syncViaImapFallback = async ({ user }) => {
   const smtpUser = (process.env.SMTP_USER || "").toLowerCase();
 
   if (!smtpUser || !process.env.SMTP_PASS) {
@@ -28,7 +67,7 @@ export const syncIncomingForUser = async ({ user }) => {
   try {
     for await (const msg of client.fetch("1:*", { uid: true, source: true, envelope: true })) {
       const uid = String(msg.uid);
-      const exists = await Email.findOne({ externalMessageId: uid, userId: user._id });
+      const exists = await Email.findOne({ externalSource: "imap", externalMessageId: uid, userId: user._id });
       if (exists) continue;
 
       const parsed = await simpleParser(msg.source);
@@ -47,7 +86,9 @@ export const syncIncomingForUser = async ({ user }) => {
         box: "inbox",
         category: "primary",
         isStarred: false,
+        isRead: false,
         isSpam: false,
+        externalSource: "imap",
         externalMessageId: uid,
         userId: user._id,
       });
@@ -60,4 +101,12 @@ export const syncIncomingForUser = async ({ user }) => {
   }
 
   return { imported, reason: null };
+};
+
+export const syncIncomingForUser = async ({ user, persistTokens }) => {
+  if (isGmailConfigured() && user?.gmail?.refreshToken) {
+    return syncViaGmailApi({ user, persistTokens });
+  }
+
+  return syncViaImapFallback({ user });
 };

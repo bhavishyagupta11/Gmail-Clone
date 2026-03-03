@@ -40,6 +40,12 @@ const emailSchema = new mongoose.Schema(
       enum: ["primary", "updates"],
       default: "primary",
     },
+    externalSource: {
+      type: String,
+      enum: ["local", "imap", "gmail"],
+      default: "local",
+      index: true,
+    },
     externalMessageId: {
       type: String,
       default: null,

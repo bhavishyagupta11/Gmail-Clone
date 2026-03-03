@@ -11,6 +11,8 @@ const sanitizeUser = (user) => ({
   fullname: user.fullname,
   email: user.email,
   profilePhoto: user.profilePhoto,
+  gmailConnected: Boolean(user?.gmail?.refreshToken),
+  gmailConnectedEmail: user?.gmail?.connectedEmail || null,
 });
 
 const getCookieOptions = () => {
@@ -95,6 +97,13 @@ export const login = async (req, res) => {
           email: legacyUser.email,
           password: legacyUser.password,
           profilePhoto: legacyUser.profilePhoto,
+          gmail: legacyUser.gmail || {
+            connectedEmail: null,
+            refreshToken: null,
+            accessToken: null,
+            tokenExpiryDate: null,
+            scope: null,
+          },
         });
       }
     }
@@ -125,7 +134,7 @@ export const login = async (req, res) => {
 export const getCurrentUser = async (req, res) => {
   try {
     const user = isMongoConnected()
-      ? await User.findById(req.id).select("_id fullname email profilePhoto")
+      ? await User.findById(req.id).select("_id fullname email profilePhoto gmail")
       : await findUserById(req.id);
 
     if (!user) {
@@ -158,7 +167,7 @@ export const updateProfilePhoto = async (req, res) => {
       user = await User.findByIdAndUpdate(
         req.id,
         { profilePhoto },
-        { new: true, select: "_id fullname email profilePhoto" }
+        { new: true, select: "_id fullname email profilePhoto gmail" }
       );
     } else {
       user = await updateUserById({ userId: req.id, updates: { profilePhoto } });

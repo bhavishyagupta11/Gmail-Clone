@@ -64,6 +64,13 @@ export const createUser = async ({ fullname, email, password, profilePhoto }) =>
     email,
     password,
     profilePhoto,
+    gmail: {
+      connectedEmail: null,
+      refreshToken: null,
+      accessToken: null,
+      tokenExpiryDate: null,
+      scope: null,
+    },
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -102,6 +109,7 @@ export const createEmail = async ({
   category = "primary",
   isRead,
   externalMessageId = null,
+  externalSource = "local",
 }) => {
   const db = await readDb();
   const timestamp = nowIso();
@@ -118,6 +126,7 @@ export const createEmail = async ({
     isStarred: false,
     isSpam: false,
     category,
+    externalSource,
     externalMessageId,
     createdAt: timestamp,
     updatedAt: timestamp,

@@ -19,6 +19,28 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    gmail: {
+      connectedEmail: {
+        type: String,
+        default: null,
+      },
+      refreshToken: {
+        type: String,
+        default: null,
+      },
+      accessToken: {
+        type: String,
+        default: null,
+      },
+      tokenExpiryDate: {
+        type: Number,
+        default: null,
+      },
+      scope: {
+        type: String,
+        default: null,
+      },
+    },
   },
   { timestamps: true }
 );
