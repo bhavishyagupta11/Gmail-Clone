@@ -213,7 +213,7 @@ const fetchMessagesForLabel = async ({ gmail, user, labelIds, limit, maxPages })
   return { messages, complete };
 };
 
-export const syncInboxFromGmail = async ({ user, persistTokens, limit = 100, maxPages = 20 }) => {
+export const syncInboxFromGmail = async ({ user, persistTokens, limit = 250, maxPages = 200 }) => {
   const { gmail, oauth2Client } = await getAuthorizedClients({ user, persistTokens });
 
   const [inboxRes, sentRes, spamRes] = await Promise.all([
@@ -321,5 +321,6 @@ export const trashGmailMessage = async ({ user, messageId, persistTokens }) => {
   await gmail.users.messages.trash({ userId: "me", id: messageId });
   await persistCredentialChanges({ oauth2Client, user, persistTokens });
 };
+
 
 

@@ -14,7 +14,7 @@ const getImapConfig = () => ({
 });
 
 const syncViaGmailApi = async ({ user, persistTokens }) => {
-  const { messages: gmailMessages, complete } = await syncInboxFromGmail({ user, persistTokens, limit: 100, maxPages: 20 });
+  const { messages: gmailMessages, complete } = await syncInboxFromGmail({ user, persistTokens, limit: 250, maxPages: 200 });
   let imported = 0;
   let updated = 0;
   let removed = 0;
@@ -169,6 +169,7 @@ export const syncIncomingForUser = async ({ user, persistTokens }) => {
 
   return syncViaImapFallback({ user });
 };
+
 
 
 
