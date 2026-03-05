@@ -12,6 +12,7 @@ const SendEmail = () => {
   const [input, setInput] = useState({ to: "", subject: "", message: "", category: "primary" });
   const [minimized, setMinimized] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const changeHandler = (e) => {
     setInput({ ...input, [e.target.name]: e.target.value });
@@ -21,11 +22,15 @@ const SendEmail = () => {
     dispatch(setOpen(false));
     setMinimized(false);
     setExpanded(false);
+    setSending(false);
   };
 
   const submitHandler = async (e) => {
     e.preventDefault();
+    if (sending) return;
+
     try {
+      setSending(true);
       const res = await api.post("/email/create", input);
       if (res.data.success) {
         dispatch(addEmail(res.data.email));
@@ -33,15 +38,12 @@ const SendEmail = () => {
         setInput({ to: "", subject: "", message: "", category: "primary" });
         setMinimized(false);
         setExpanded(false);
-
-        if (res.data.deliveredToSmtp) {
-          toast.success("Email sent and delivered.");
-        } else {
-          toast.success("Email sent. Recipient gets it in-app.");
-        }
+        toast.success("Email queued instantly. Delivering in background.");
       }
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to send email");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -133,9 +135,10 @@ const SendEmail = () => {
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
             <button
               type="submit"
-              className="bg-[#0B57D0] hover:bg-[#0A4EB8] text-white rounded-full px-6 py-2 text-sm font-medium transition-colors"
+              disabled={sending}
+              className="bg-[#0B57D0] hover:bg-[#0A4EB8] disabled:bg-blue-300 text-white rounded-full px-6 py-2 text-sm font-medium transition-colors"
             >
-              Send
+              {sending ? "Sending..." : "Send"}
             </button>
             <button
               type="button"

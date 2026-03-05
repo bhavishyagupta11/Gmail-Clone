@@ -39,9 +39,9 @@ const Inbox = () => {
     }
   };
 
-  const fetchEmails = useCallback(async (showToast = false) => {
+  const fetchEmails = useCallback(async (showToast = false, syncMode = "quick") => {
     try {
-      await runInboxSync();
+      await runInboxSync(syncMode);
       const res = await api.get("/email/getallemails");
       if (res.data.success) {
         dispatch(setEmails(res.data.emails));
@@ -199,7 +199,7 @@ const Inbox = () => {
         <button onClick={toggleSelectAll} className="p-2 rounded-full hover:bg-gray-100 transition-colors" title="Select all">
           {selectedAll ? <MdCheckBox size={20} className="text-blue-600" /> : <MdOutlineCheckBoxOutlineBlank size={20} className="text-gray-600" />}
         </button>
-        <button onClick={() => fetchEmails(true)} className="p-2 rounded-full hover:bg-gray-100 transition-colors" title="Reload">
+        <button onClick={() => fetchEmails(true, "full")} className="p-2 rounded-full hover:bg-gray-100 transition-colors" title="Reload">
           <MdOutlineRefresh size={20} className="text-gray-600" />
         </button>
         <button onClick={() => setMenuOpen((prev) => !prev)} className="p-2 rounded-full hover:bg-gray-100 transition-colors" title="More actions">
@@ -300,5 +300,6 @@ const Inbox = () => {
 };
 
 export default Inbox;
+
 
 

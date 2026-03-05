@@ -70,7 +70,7 @@ export const syncInbox = async (req, res) => {
       return res.status(200).json({ success: true, imported: 0, message: result.reason });
     }
 
-    return res.status(200).json({ success: true, imported: result.imported, message: "Inbox synced." });
+    return res.status(200).json({ success: true, imported: result.imported, details: result.details || null, message: "Inbox synced." });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ success: false, message: "Sync failed." });
@@ -91,58 +91,21 @@ export const createEmail = async (req, res) => {
     }
 
     const toEmail = to.trim().toLowerCase();
+    const subjectText = subject.trim();
+    const messageText = message.trim();
     const categoryValue = normalizeCategory(category);
 
-    let deliveryFrom = sender.email;
-    let externalSource = "local";
-    let externalMessageId = null;
-    let smtpStatus = { delivered: false, reason: "SMTP not attempted." };
-
-    if (isMongoConnected() && sender?.gmail?.refreshToken) {
-      try {
-        const gmailDelivery = await sendViaGmail({
-          user: sender,
-          to: toEmail,
-          subject: subject.trim(),
-          message: message.trim(),
-          persistTokens: (tokens) => persistUserGmailTokens({ user: sender, tokens }),
-        });
-
-        deliveryFrom = gmailDelivery.from || sender.email;
-        externalSource = "gmail";
-        externalMessageId = gmailDelivery.externalMessageId;
-        smtpStatus = { delivered: true, reason: null };
-      } catch (gmailError) {
-        console.error("Gmail API send failed, falling back to SMTP.", gmailError?.message || gmailError);
-      }
-    }
-
-    if (!smtpStatus.delivered) {
-      try {
-        smtpStatus = await sendEmailViaSmtp({
-          from: deliveryFrom,
-          to: toEmail,
-          subject: subject.trim(),
-          message: message.trim(),
-        });
-      } catch (smtpError) {
-        const code = smtpError?.code || smtpError?.responseCode || "UNKNOWN";
-        console.error(`SMTP delivery failed. code=${code}`);
-        smtpStatus = { delivered: false, reason: "SMTP delivery failed." };
-      }
-    }
-
     const sentPayload = {
-      from: deliveryFrom,
+      from: sender.email,
       to: toEmail,
-      subject: subject.trim(),
-      message: message.trim(),
+      subject: subjectText,
+      message: messageText,
       category: categoryValue,
       box: "sent",
       isRead: true,
       userId: req.id,
-      externalSource,
-      externalMessageId,
+      externalSource: "local",
+      externalMessageId: null,
     };
 
     const recipientUser = await getUserByEmail(toEmail);
@@ -158,7 +121,7 @@ export const createEmail = async (req, res) => {
           ...sentPayload,
           box: "inbox",
           isRead: false,
-          externalSource: externalSource === "gmail" ? "local" : externalSource,
+          externalSource: "local",
           externalMessageId: null,
           userId: recipientUser._id,
         });
@@ -178,14 +141,48 @@ export const createEmail = async (req, res) => {
       }
     }
 
-    return res.status(201).json({
-      message: "Email sent successfully.",
+    res.status(201).json({
+      message: "Email queued successfully.",
       success: true,
       email: senderEmail,
       deliveredToAppInbox: shouldCreateInboxCopy,
-      deliveredToSmtp: smtpStatus.delivered,
-      smtpInfo: smtpStatus.delivered ? null : smtpStatus.reason,
+      deliveredToSmtp: null,
+      smtpInfo: "Delivery in progress.",
     });
+
+    (async () => {
+      try {
+        if (isMongoConnected() && sender?.gmail?.refreshToken) {
+          const gmailDelivery = await sendViaGmail({
+            user: sender,
+            to: toEmail,
+            subject: subjectText,
+            message: messageText,
+            persistTokens: (tokens) => persistUserGmailTokens({ user: sender, tokens }),
+          });
+
+          if (gmailDelivery?.externalMessageId) {
+            await Email.findByIdAndUpdate(senderEmail._id, {
+              externalSource: "gmail",
+              externalMessageId: gmailDelivery.externalMessageId,
+              from: gmailDelivery.from || sender.email,
+            });
+          }
+          return;
+        }
+
+        await sendEmailViaSmtp({
+          from: sender.email,
+          to: toEmail,
+          subject: subjectText,
+          message: messageText,
+        });
+      } catch (deliveryError) {
+        console.error("Background delivery failed:", deliveryError?.message || deliveryError);
+      }
+    })();
+
+    return undefined;
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "Internal server error.", success: false });
@@ -383,3 +380,5 @@ export const deleteEmail = async (req, res) => {
     return res.status(500).json({ message: "Internal server error.", success: false });
   }
 };
+
+
